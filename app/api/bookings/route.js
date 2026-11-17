@@ -16,7 +16,7 @@ export async function GET(request) {
     const CANCEL_GRACE_MINUTES =
       Number(
         process.env.CANCEL_GRACE_MINUTES ||
-          process.env.NEXT_PUBLIC_CANCEL_GRACE_MINUTES,
+        process.env.NEXT_PUBLIC_CANCEL_GRACE_MINUTES,
       ) || 10;
     const now = new Date();
 
@@ -64,6 +64,7 @@ export async function POST(request) {
       amount,
     } = await request.json();
 
+    // 1. Check if the specific computer is already booked for this time slot
     const existingBookings = await Booking.find({
       computerId,
       date,
@@ -76,9 +77,29 @@ export async function POST(request) {
 
     if (isOverlapping)
       return NextResponse.json(
-        { message: "Slot not available" },
+        { message: "Slot not available for this system" },
         { status: 400 },
       );
+
+    // 2. NAYA VALIDATION: Check if the same customer (by phone number) already has an active booking at this time slot on ANY other computer
+    if (customerPhone) {
+      const customerExistingBookings = await Booking.find({
+        customerPhone,
+        date,
+        status: { $in: ["CONFIRMED", "PENDING"] },
+      });
+
+      const isCustomerOverlapping = customerExistingBookings.some((booking) => {
+        return startTime < booking.endTime && endTime > booking.startTime;
+      });
+
+      if (isCustomerOverlapping) {
+        return NextResponse.json(
+          { message: "Duplicate Booking Error: You already have an active booking on another system during this time slot." },
+          { status: 400 },
+        );
+      }
+    }
 
     const newBooking = await Booking.create({
       computerId,
