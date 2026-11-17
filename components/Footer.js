@@ -9,7 +9,6 @@ export default function Footer() {
   }, []);
 
   return (
-    // 'mt-auto' hata diya gaya hai jisse margin ki wajah se scrollbar na aaye
     <footer className="bg-white text-slate-500 py-4 border-t border-slate-200 shrink-0 z-10 relative">
       <div className="w-full px-4 sm:px-6 text-center sm:flex sm:justify-between sm:items-center max-w-7xl mx-auto">
         <p className="font-medium text-sm mb-1 sm:mb-0">

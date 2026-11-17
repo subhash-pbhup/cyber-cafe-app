@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export default function BookingPage() {
   const [computers, setComputers] = useState([]);
@@ -11,6 +11,12 @@ export default function BookingPage() {
   const [minDate, setMinDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+
+  const [isUserInteracting, setIsUserInteracting] = useState(false);
+  const isUserInteractingRef = useRef(false);
+  isUserInteractingRef.current = isUserInteracting;
+
+  const lastMinuteRef = useRef(null);
 
   // Modal State for Customer Details
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -31,29 +37,26 @@ export default function BookingPage() {
     }, 3500);
   };
 
-  // Initial Date & Time Setup
+  // Initial Date & Live Minute-by-Minute Time Setup inside useEffect (Client-side only)
   useEffect(() => {
-    const todayStr = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const todayStr = now.toISOString().split("T")[0];
     setMinDate(todayStr);
+    setDate(todayStr);
 
-    const updateCurrentDateTime = () => {
-      const now = new Date();
-      const hours = String(now.getHours()).padStart(2, "0");
-      const minutes = String(now.getMinutes()).padStart(2, "0");
-      const currentFormattedTime = `${hours}:${minutes}`;
+    const hours = String(now.getHours()).padStart(2, "0");
+    const minutes = String(now.getMinutes()).padStart(2, "0");
+    const currentFormattedTime = `${hours}:${minutes}`;
 
-      setDate((prevDate) => prevDate || todayStr);
-      setStartTime((prev) => prev || currentFormattedTime);
+    setStartTime(currentFormattedTime);
+    lastMinuteRef.current = now.getMinutes();
 
-      if (!endTime) {
-        const endNow = new Date(now.getTime() + 60 * 60 * 1000);
-        const endHours = String(endNow.getHours()).padStart(2, "0");
-        const endMinutes = String(endNow.getMinutes()).padStart(2, "0");
-        setEndTime(`${endHours}:${endMinutes}`);
-      }
-    };
+    // 1 Hour Gap for End Time
+    const endNow = new Date(now.getTime() + 60 * 60 * 1000);
+    const endHours = String(endNow.getHours()).padStart(2, "0");
+    const endMinutes = String(endNow.getMinutes()).padStart(2, "0");
+    setEndTime(`${endHours}:${endMinutes}`);
 
-    updateCurrentDateTime();
     fetchComputers();
   }, []);
 
@@ -65,19 +68,34 @@ export default function BookingPage() {
 
     const interval = setInterval(() => {
       const now = new Date();
-      const hours = String(now.getHours()).padStart(2, "0");
-      const minutes = String(now.getMinutes()).padStart(2, "0");
-      setStartTime(`${hours}:${minutes}`);
+      const currentMinute = now.getMinutes();
+
+      if (currentMinute !== lastMinuteRef.current && !isUserInteractingRef.current) {
+        lastMinuteRef.current = currentMinute;
+
+        const hours = String(now.getHours()).padStart(2, "0");
+        const minutes = String(currentMinute).padStart(2, "0");
+        const newStart = `${hours}:${minutes}`;
+        setStartTime(newStart);
+
+        const endNow = new Date(now.getTime() + 60 * 60 * 1000);
+        const endHours = String(endNow.getHours()).padStart(2, "0");
+        const endMinutes = String(endNow.getMinutes()).padStart(2, "0");
+        setEndTime(`${endHours}:${endMinutes}`);
+      }
 
       fetchBookingsByDate(date);
-    }, 5000); // Har 5 seconds mein auto-update
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [date]);
 
   const fetchComputers = async () => {
     try {
-      const res = await fetch("/api/computers", { cache: "no-store" });
+      const res = await fetch("/api/computers", {
+        cache: "no-store",
+        headers: { "ngrok-skip-browser-warning": "true" }
+      });
       const data = await res.json();
       const activeComputers = (data || []).filter(
         (pc) => pc.isActive !== false,
@@ -94,6 +112,7 @@ export default function BookingPage() {
     try {
       const res = await fetch(`/api/bookings?date=${selectedDate}`, {
         cache: "no-store",
+        headers: { "ngrok-skip-browser-warning": "true" }
       });
       const data = await res.json();
       setBookings(data || []);
@@ -107,7 +126,6 @@ export default function BookingPage() {
     return bookings.some((booking) => {
       if (booking.computerId !== pcId) return false;
 
-      // Agar booking CANCELLED ya COMPLETED hai toh slot free mana jayega
       if (booking.status === "CANCELLED" || booking.status === "COMPLETED")
         return false;
 
@@ -117,6 +135,22 @@ export default function BookingPage() {
         endTime > booking.startTime
       );
     });
+  };
+
+  // Handle manual changes in start time to maintain 1-hour gap
+  const handleStartTimeChange = (e) => {
+    setIsUserInteracting(true);
+    const newStart = e.target.value;
+    setStartTime(newStart);
+
+    if (newStart) {
+      const [h, m] = newStart.split(":").map(Number);
+      const endDate = new Date();
+      endDate.setHours(h + 1, m);
+      const endH = String(endDate.getHours()).padStart(2, "0");
+      const endM = String(endDate.getMinutes()).padStart(2, "0");
+      setEndTime(`${endH}:${endM}`);
+    }
   };
 
   const handlePcClick = (pc) => {
@@ -159,7 +193,10 @@ export default function BookingPage() {
     try {
       const res = await fetch("/api/bookings", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true"
+        },
         body: JSON.stringify({
           computerId: selectedPc._id,
           computerName: selectedPc.name,
@@ -203,39 +240,9 @@ export default function BookingPage() {
     <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-md border border-slate-100 relative overflow-hidden">
       {toast.show && (
         <div
-          className={`fixed top-8 right-8 z-[100] max-w-sm px-6 py-4 rounded-xl shadow-2xl font-semibold text-white animate-in slide-in-from-top-10 fade-in duration-300 flex items-center gap-3 ${
-            toast.type === "success" ? "bg-emerald-600" : "bg-rose-600"
-          }`}
+          className={`fixed top-8 right-8 z-[100] max-w-sm px-6 py-4 rounded-xl shadow-2xl font-semibold text-white animate-in slide-in-from-top-10 fade-in duration-300 flex items-center gap-3 ${toast.type === "success" ? "bg-emerald-600" : "bg-rose-600"
+            }`}
         >
-          {toast.type === "success" ? (
-            <svg
-              className="w-6 h-6 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M5 13l4 4L19 7"
-              ></path>
-            </svg>
-          ) : (
-            <svg
-              className="w-6 h-6 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              ></path>
-            </svg>
-          )}
           <span className="text-sm leading-tight">{toast.message}</span>
         </div>
       )}
@@ -271,19 +278,22 @@ export default function BookingPage() {
           <input
             type="time"
             value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
+            onChange={handleStartTimeChange}
             className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
           />
         </div>
         <div>
           <label className="block text-sm font-bold text-slate-700 mb-2">
-            End Time
+            End Time (Auto +1 Hr Gap)
           </label>
           <input
             type="time"
             value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
-            className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
+            onChange={(e) => {
+              setIsUserInteracting(true);
+              setEndTime(e.target.value);
+            }}
+            className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-slate-100"
           />
         </div>
       </div>
@@ -320,14 +330,16 @@ export default function BookingPage() {
                 key={pc._id}
                 onClick={() => handlePcClick(pc)}
                 className={`group flex flex-col items-center justify-center p-6 border-2 rounded-2xl cursor-pointer transition-all duration-300 relative overflow-hidden shadow-sm hover:shadow-md
-                  ${
-                    isBooked
-                      ? "border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-800"
-                      : "border-emerald-200 bg-emerald-50 hover:bg-emerald-500 hover:border-emerald-500 text-emerald-800 hover:text-white"
+                  ${isBooked
+                    ? "border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-800"
+                    : "border-emerald-200 bg-emerald-50 hover:bg-emerald-500 hover:border-emerald-500 text-emerald-800 hover:text-white"
                   }`}
               >
                 <svg
-                  className={`w-14 h-14 mb-3 transition-colors duration-300 ${isBooked ? "text-rose-400" : "text-emerald-500 group-hover:text-white"}`}
+                  className={`w-14 h-14 mb-3 transition-colors duration-300 ${isBooked
+                      ? "text-rose-400"
+                      : "text-emerald-500 group-hover:text-white"
+                    }`}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -343,7 +355,10 @@ export default function BookingPage() {
                   {pc.name}
                 </span>
                 <span
-                  className={`text-sm font-medium mt-1 px-2 py-1 rounded-md ${isBooked ? "bg-rose-200/50" : "bg-emerald-200/50 group-hover:bg-emerald-600"}`}
+                  className={`text-sm font-medium mt-1 px-2 py-1 rounded-md ${isBooked
+                      ? "bg-rose-200/50"
+                      : "bg-emerald-200/50 group-hover:bg-emerald-600"
+                    }`}
                 >
                   ₹{pc.hourlyRate}/hr
                 </span>
