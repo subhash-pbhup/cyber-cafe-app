@@ -18,6 +18,9 @@ export function middleware(request) {
   if (path === "/login" && token) {
     return NextResponse.redirect(new URL("/", request.url));
   }
+  
+  // Agar sab theek hai, toh request aage badhne dein
+  return NextResponse.next();
 }
 
 // Ye config batata hai ki middleware kin routes par chalna chahiye
@@ -29,7 +32,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - images (Aapki saari images)
      */
-    "/((?!api|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|images).*)",
   ],
 };
